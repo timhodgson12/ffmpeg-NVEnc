@@ -4,7 +4,8 @@
 # LICENSE: https://github.com/markus-perl/ffmpeg-build-script/blob/master/LICENSE
 
 PROGNAME=$(basename "$0")
-FFMPEG_VERSION=5.1
+FFMPEG_VERSION=${FFMPEG_VERSION:-5.1}
+NVENC_VERSION=${NVENC_VERSION:-7.08}
 SCRIPT_VERSION=1.43
 CWD=$(pwd)
 PACKAGES="$CWD/packages"
@@ -918,7 +919,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   EXTRA_VERSION="${FFMPEG_VERSION}"
 fi
 
-build "ffmpeg" "$FFMPEG_VERSION"
+if build "ffmpeg" "$FFMPEG_VERSION"; then
 download "https://github.com/FFmpeg/FFmpeg/archive/refs/heads/release/$FFMPEG_VERSION.tar.gz" "FFmpeg-release-$FFMPEG_VERSION.tar.gz"
 # shellcheck disable=SC2086
 ./configure "${CONFIGURE_OPTIONS[@]}" \
@@ -940,10 +941,37 @@ download "https://github.com/FFmpeg/FFmpeg/archive/refs/heads/release/$FFMPEG_VE
 
 execute make -j $MJOBS
 execute make install
+build_done "ffmpeg" "$FFMPEG_VERSION"
+fi
 
-INSTALL_FOLDER="/usr/bin"
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  INSTALL_FOLDER="/usr/local/bin"
+if build "avisynthplus" "3.7.2"; then
+    download "https://github.com/AviSynth/AviSynthPlus/archive/refs/tags/v3.7.2.tar.gz" "AviSynthPlus-3.7.2.tar.gz"
+    make_dir avisynth-build  && cd avisynth-build 
+    cmake ../ -DCMAKE_INSTALL_PREFIX="${WORKSPACE}"
+    execute make -j $MJOBS
+    execute make install
+    build_done "avisynthplus" "3.7.2"
+fi
+
+##
+## NVEnc
+##
+
+if build "nvenc" "$NVENC_VERSION"; then
+    download "https://github.com/rigaya/NVEnc/archive/refs/tags/$NVENC_VERSION.tar.gz" "NVEnc-$NVENC_VERSION.tar.gz"
+    rm -rf ./cppcodec
+    rm -rf ./build_pkg
+    git clone https://github.com/tplgy/cppcodec --depth=1 
+    git clone https://github.com/rigaya/build_pkg --depth=1
+    sed -i 's/avfilter_register_all()/avfilter_init_dict(0,0)/g' ./configure
+    ./configure --prefix="${WORKSPACE}" \
+    --extra-cxxflags="${CFLAGS}" \
+    --extra-ldflags="${LDFLAGS}" \
+    --disable-vapoursynth
+
+    execute make -j $MJOBS
+    execute make install
+    build_done "nvenc" "$NVENC_VERSION"
 fi
 
 verify_binary_type
@@ -953,36 +981,9 @@ echo "Building done. The following binaries can be found here:"
 echo "- ffmpeg: $WORKSPACE/bin/ffmpeg"
 echo "- ffprobe: $WORKSPACE/bin/ffprobe"
 echo "- ffplay: $WORKSPACE/bin/ffplay"
+echo "- nvenc: $WORKSPACE/bin/nvencc"
 echo ""
 
-if [[ "$AUTOINSTALL" == "yes" ]]; then
-  if command_exists "sudo"; then
-    sudo cp "$WORKSPACE/bin/ffmpeg" "$INSTALL_FOLDER/ffmpeg"
-    sudo cp "$WORKSPACE/bin/ffprobe" "$INSTALL_FOLDER/ffprobe"
-    sudo cp "$WORKSPACE/bin/ffplay" "$INSTALL_FOLDER/ffplay"
-    echo "Done. FFmpeg is now installed to your system."
-  else
-    cp "$WORKSPACE/bin/ffmpeg" "$INSTALL_FOLDER/ffmpeg"
-    cp "$WORKSPACE/bin/ffprobe" "$INSTALL_FOLDER/ffprobe"
-    cp "$WORKSPACE/bin/ffplay" "$INSTALL_FOLDER/ffplay"
-    echo "Done. FFmpeg is now installed to your system."
-  fi
-elif [[ ! "$SKIPINSTALL" == "yes" ]]; then
-  read -r -p "Install these binaries to your $INSTALL_FOLDER folder? Existing binaries will be replaced. [Y/n] " response
-  case $response in
-  [yY][eE][sS] | [yY])
-    if command_exists "sudo"; then
-      sudo cp "$WORKSPACE/bin/ffmpeg" "$INSTALL_FOLDER/ffmpeg"
-      sudo cp "$WORKSPACE/bin/ffprobe" "$INSTALL_FOLDER/ffprobe"
-      sudo cp "$WORKSPACE/bin/ffplay" "$INSTALL_FOLDER/ffplay"
-    else
-      cp "$WORKSPACE/bin/ffmpeg" "$INSTALL_FOLDER/ffmpeg"
-      cp "$WORKSPACE/bin/ffprobe" "$INSTALL_FOLDER/ffprobe"
-      cp "$WORKSPACE/bin/ffplay" "$INSTALL_FOLDER/ffplay"
-    fi
-    echo "Done. FFmpeg is now installed to your system."
-    ;;
-  esac
-fi
-
 exit 0
+
+

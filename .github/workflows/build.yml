@@ -1,150 +1,74 @@
-name: build test
+name: Build FFmpeg
 
 on:
-  push:
-    paths-ignore:
-      - '*.md'
-  pull_request:
-    branches: [ master ]
+   workflow_dispatch:
 
 jobs:
-  build-linux:
-    name: build in native linux
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: install libva-dev
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libva-dev
-
-      - name: build ffmpeg
-        run: |
-          while sleep 300; do echo "=====[ $SECONDS seconds still running ]====="; done &
-          SKIPINSTALL=yes VERBOSE=yes ./build-ffmpeg --build --enable-gpl-and-non-free
-          kill %1
-      - name: check shared library
-        run: |
-          ldd ./workspace/bin/ffmpeg
-      - name: test run ffmepg
-        run: |
-          ./workspace/bin/ffmpeg -buildconf
-      - name: clean up
-        run: |
-          ./build-ffmpeg --cleanup
-
-  build-macos:
-    name: build in native macOS
-    runs-on: macos-10.15
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: build ffmpeg
-        run: |
-          while sleep 300; do echo "=====[ $SECONDS seconds still running ]====="; done &
-          SKIPINSTALL=yes VERBOSE=yes ./build-ffmpeg --build --enable-gpl-and-non-free
-          kill %1
-      - name: check shared library
-        run: |
-          otool -L ./workspace/bin/ffmpeg
-      - name: test run ffmepg
-        run: |
-          ./workspace/bin/ffmpeg -buildconf
-      - name: clean up
-        run: |
-          ./build-ffmpeg --cleanup
-
-  build-docker:
-    name: build in docker
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: pull base image
-        id: ubuntu_pull
-        run: |
-          docker pull ubuntu:22.04
-      - name: run if ubuntu_pull failed
-        if: failure() && steps.ubuntu_pull.outcome == 'failure'
-        run: |
-          docker pull ubuntu:22.04
-      - name: build ffmpeg
-        run: |
-          docker build -t ffmpeg:ubuntu -f Dockerfile .
-      - name: test run ffmepg
-        run: |
-          docker run --rm ffmpeg:ubuntu -buildconf
 
   build-cuda-ubuntu-docker:
     name: build in ubuntu docker with cuda
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+    strategy:
+      matrix:
+        os: ['20.04', '18.04']
+    runs-on: ubuntu-latest
 
-      - name: pull base image
-        id: cuda_ubuntu_pull
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set Envs
         run: |
-          docker pull nvidia/cuda:11.8.0-devel-ubuntu22.04
-          docker pull ubuntu:22.04
-      - name: run if cuda_ubuntu_pull failed
-        if: failure() && steps.cuda_ubuntu_pull.outcome == 'failure'
-        run: |
-          docker pull nvidia/cuda:11.8.0-devel-ubuntu22.04
-          docker pull ubuntu:22.04
+          echo "NVENC_VERSION=$(curl -fsSLI -o /dev/null -w %{url_effective} https://github.com/rigaya/NVEnc/releases/latest | rev | cut -d '/' -f 1 | rev)" >> $GITHUB_ENV
+          echo "FFMPEG_VERSION=5.1" >> $GITHUB_ENV
+
       - name: build ffmpeg
         run: |
-          docker build -t ffmpeg:cuda-ubuntu -f cuda-ubuntu.dockerfile .
-      - name: test run ffmepg
-        run: |
-          docker run --rm ffmpeg:cuda-ubuntu -buildconf
+          docker build --build-arg VER=${{ matrix.os }} --build-arg FFMPEG_VERSION=${{ env.FFMPEG_VERSION }} \
+           --build-arg NVENC_VERSION=${{ env.NVENC_VERSION }} -t  \
+           ffmpeg:cuda-ubuntu${{ matrix.os }} -f cuda-ubuntu.dockerfile .
 
-  build-cuda-rocky-docker:
-    name: build in Rockylinux docker with cuda
+      - name: copy build
+        run: |
+          docker run --rm  -v ${{ github.workspace }}/artifacts:/app/artifacts \
+           -e VER=${{ matrix.os }} ffmpeg:cuda-ubuntu${{ matrix.os }} bash copyfiles.sh
+          sudo chmod -R 777 ${{ github.workspace }}/artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ffmpeg
+          path: artifacts/*
+
+  publish_release:
+    name: Publish release
+    needs: build-cuda-ubuntu-docker
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      - name: pull base image
-        id: cuda_centos_pull
-        run: |
-          docker pull nvidia/cuda:11.6.0-devel-centos8
-          docker pull rockylinux:8
-      - name: run if cuda_centos_pull failed
-        if: failure() && steps.cuda_centos_pull.outcome == 'failure'
-        run: |
-          docker pull nvidia/cuda:11.6.0-devel-centos8
-          docker pull rockylinux:8
-      - name: build ffmpeg
-        run: |
-          docker build -t ffmpeg:cuda-rocky -f cuda-rocky.dockerfile .
-      - name: test run ffmepg
-        run: |
-          docker run --rm ffmpeg:cuda-rocky -buildconf
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: ffmpeg
+          path: artifacts
 
-  build-full-static:
-    name: full static build in docker
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+      - name: Set Envs
+        run: |
+          echo "NVENC_VERSION=$(curl -fsSLI -o /dev/null -w %{url_effective} https://github.com/rigaya/NVEnc/releases/latest | rev | cut -d '/' -f 1 | rev)" >> $GITHUB_ENV
+          echo "FFMPEG_VERSION=5.1" >> $GITHUB_ENV
 
-      - name: pull base image
-        id: cuda_ubuntu_pull
-        run: |
-          docker pull nvidia/cuda:11.8.0-devel-ubuntu22.04
-      - name: run if cuda_ubuntu_pull failed
-        if: failure() && steps.cuda_ubuntu_pull.outcome == 'failure'
-        run: |
-          docker pull nvidia/cuda:11.8.0-devel-ubuntu22.04
-      - name: build ffmpeg
-        run: |
-          docker build -t ffmpeg:cuda-static -f full-static.dockerfile .
-      - name: test run ffmepg
-        run: |
-          docker run --rm ffmpeg:cuda-static -buildconf
+      - name: Delete release
+        run: gh release delete latest --cleanup-tag -y
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT }}
+      
+      - name: Upload modules to release
+        uses: softprops/action-gh-release@v1
+        with:
+          token: ${{ secrets.PAT }}
+          tag_name: latest
+          files: ${{ github.workspace }}/artifacts/**/*
+          name: FFmpeg-${{ env.FFMPEG_VERSION }}-Nvencc-${{ env.NVENC_VERSION }}
+          draft: false
+          prerelease: false

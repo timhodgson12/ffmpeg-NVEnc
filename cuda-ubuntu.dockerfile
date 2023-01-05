@@ -1,49 +1,42 @@
-ARG VER=22.04
+ARG VER=20.04
 
-FROM nvidia/cuda:11.8.0-devel-ubuntu${VER} AS build
+FROM nvidia/cuda:11.8.0-devel-ubuntu${VER}
+
+ARG FFMPEG_VERSION
+
+ARG NVENC_VERSION
 
 ENV DEBIAN_FRONTEND noninteractive
 ENV NVIDIA_VISIBLE_DEVICES all
 ENV NVIDIA_DRIVER_CAPABILITIES compute,utility,video
 
+ENV FFMPEG_VERSION ${FFMPEG_VERSION}
+ENV NVENC_VERSION ${NVENC_VERSION}
+ENV VER ${VER}
+
 RUN apt-get update \
-    && apt-get -y --no-install-recommends install build-essential curl ca-certificates libva-dev python3 python-is-python3 ninja-build meson \
+    && apt-get -y --no-install-recommends install software-properties-common build-essential curl ca-certificates libva-dev libdevil-dev \
+    python3 python3-pip ninja-build git-core libass-dev libfreetype6-dev libunistring-dev wget \
     && apt-get clean; rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc/* \
     && update-ca-certificates
 
+
+RUN pip3 install meson
+
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 10
+
+RUN add-apt-repository ppa:ubuntu-toolchain-r/test -y
+
+RUN apt update && apt install gcc-11 g++-11 -y
+
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 60 --slave /usr/bin/g++ g++ /usr/bin/g++-11
+
 WORKDIR /app
 COPY ./build-ffmpeg /app/build-ffmpeg
+COPY ./ldd.sh /app/ldd.sh
+COPY ./copyfiles.sh /app/copyfiles.sh
 
-RUN SKIPINSTALL=yes /app/build-ffmpeg --build --enable-gpl-and-non-free
+RUN /app/build-ffmpeg --build --enable-gpl-and-non-free
 
+RUN /app/workspace/bin/ffmpeg --help
 
-FROM ubuntu:${VER}
-
-ENV DEBIAN_FRONTEND noninteractive
-ENV NVIDIA_VISIBLE_DEVICES all
-ENV NVIDIA_DRIVER_CAPABILITIES compute,utility,video
-
-# install va-driver
-RUN apt-get update \
-    && apt-get -y install libva-drm2 \
-    && apt-get clean; rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc/*
-
-# Copy libnpp
-COPY --from=build /usr/local/cuda-11.8/targets/x86_64-linux/lib/libnppc.so.11 /lib/x86_64-linux-gnu/libnppc.so.11
-COPY --from=build /usr/local/cuda-11.8/targets/x86_64-linux/lib/libnppig.so.11 /lib/x86_64-linux-gnu/libnppig.so.11
-COPY --from=build /usr/local/cuda-11.8/targets/x86_64-linux/lib/libnppicc.so.11 /lib/x86_64-linux-gnu/libnppicc.so.11
-COPY --from=build /usr/local/cuda-11.8/targets/x86_64-linux/lib/libnppidei.so.11 /lib/x86_64-linux-gnu/libnppidei.so.11
-COPY --from=build /usr/local/cuda-11.8/targets/x86_64-linux/lib/libnppif.so.11 /lib/x86_64-linux-gnu/libnppif.so.11
-
-# Copy ffmpeg
-COPY --from=build /app/workspace/bin/ffmpeg /usr/bin/ffmpeg
-COPY --from=build /app/workspace/bin/ffprobe /usr/bin/ffprobe
-COPY --from=build /app/workspace/bin/ffplay /usr/bin/ffplay
-
-# Check shared library
-RUN ldd /usr/bin/ffmpeg
-RUN ldd /usr/bin/ffprobe
-RUN ldd /usr/bin/ffplay
-
-CMD         ["--help"]
-ENTRYPOINT  ["/usr/bin/ffmpeg"]
