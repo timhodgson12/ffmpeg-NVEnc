@@ -27,9 +27,9 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 10
 
 RUN add-apt-repository ppa:ubuntu-toolchain-r/test -y
 
-RUN apt update && apt install gcc-11 g++-11 -y
+RUN apt update && apt install gcc-9 g++-9 -y
 
-RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 60 --slave /usr/bin/g++ g++ /usr/bin/g++-11
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 60 --slave /usr/bin/g++ g++ /usr/bin/g++-9
 
 WORKDIR /app
 COPY ./build-ffmpeg /app/build-ffmpeg
