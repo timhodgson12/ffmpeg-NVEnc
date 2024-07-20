@@ -808,7 +808,7 @@ if build "libtiff" "4.5.0"; then
   build_done "libtiff" "4.5.0"
 fi
 if build "libpng" "1.6.39"; then
-  download "https://gigenet.dl.sourceforge.net/project/libpng/libpng16/1.6.39/libpng-1.6.39.tar.gz" "libpng-1.6.39.tar.gz"
+  download "https://sourceforge.net/projects/libpng/files/libpng16/1.6.39/libpng-1.6.39.tar.gz/download" "libpng-1.6.39.tar.gz"
   export LDFLAGS="${LDFLAGS}"
   export CPPFLAGS="${CFLAGS}"
   execute ./configure --prefix="${WORKSPACE}" --disable-shared --enable-static
